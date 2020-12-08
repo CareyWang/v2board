@@ -41,21 +41,20 @@ curl -fsSL https://git.io/JIRle | bash
 ### Project
 
 ```bash
+mkdir -p /var/www/http && cd /var/www/http 
 git clone https://github.com/CareyWang/v2board.git && cd v2board 
 composer install --no-dev
 
 cp .env.example .env 
-# Modify MySQL and Redis options.
 
 php artisan key:generate 
 php artisan v2board:install 
-php artisan migrate --force 
 php artisan config:clear 
-php artisan config:cache 
-php artisan route:clear 
-php artisan route:cache 
+php artisan config:cache
 
 pm2 start pm2.yaml 
+
+echo '* * * * * root php /var/www/http/v2board/artisan schedule:run' >> /etc/crontab 
 ```
 
 ## Other
