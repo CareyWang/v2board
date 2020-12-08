@@ -4,17 +4,15 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Services\ServerService;
+use App\Services\UserService;
 use App\Utils\Clash;
 use App\Utils\QuantumultX;
 use App\Utils\Shadowrocket;
-use App\Utils\Surge;
 use App\Utils\Surfboard;
+use App\Utils\Surge;
 use App\Utils\URLSchemes;
 use Illuminate\Http\Request;
-use App\Models\Server;
-use App\Utils\Helper;
 use Symfony\Component\Yaml\Yaml;
-use App\Services\UserService;
 
 class ClientController extends Controller
 {
@@ -57,26 +55,57 @@ class ClientController extends Controller
             die($this->origin($user, $servers));
         }
     }
+
+    /**
+     * 使用 subconverter 生成订阅.
+     *
+     * @return string|void
+     *
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     */
+    public function subscribeBySubConverter(Request $request)
+    {
+        $user = $request->user;
+        $userService = new UserService();
+        if (!$userService->isAvailable($user)) {
+            throw new \Exception('Your account is not available.');
+        }
+
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $fromSubConverter = $request->hasHeader('SubConverter-Request');
+
+        if (!$this->isUAMatched($ua) || $fromSubConverter || config('v2board.use_subconverter') !== true) {
+            return $this->subscribe($request);
+        } else {
+            return $this->requestSubConverter($request->fullUrl(), $ua);
+        }
+    }
+
     // TODO: Ready to stop support
     private function quantumult($user, $servers = [])
     {
         $uri = '';
-        header('subscription-userinfo: upload=' . $user->u . '; download=' . $user->d . ';total=' . $user->transfer_enable);
+        header('subscription-userinfo: upload='.$user->u.'; download='.$user->d.';total='.$user->transfer_enable);
         foreach ($servers as $item) {
             if ($item['type'] === 'v2ray') {
                 $str = '';
-                $str .= $item['name'] . '= vmess, ' . $item['host'] . ', ' . $item['port'] . ', chacha20-ietf-poly1305, "' . $user['uuid'] . '", over-tls=' . ($item['tls'] ? "true" : "false") . ', certificate=0, group=' . config('v2board.app_name', 'V2Board');
+                $str .= $item['name'].'= vmess, '.$item['host'].', '.$item['port'].', chacha20-ietf-poly1305, "'.$user['uuid'].'", over-tls='.($item['tls'] ? 'true' : 'false').', certificate=0, group='.config('v2board.app_name', 'V2Board');
                 if ($item['network'] === 'ws') {
                     $str .= ', obfs=ws';
                     if ($item['networkSettings']) {
                         $wsSettings = json_decode($item['networkSettings'], true);
-                        if (isset($wsSettings['path'])) $str .= ', obfs-path="' . $wsSettings['path'] . '"';
-                        if (isset($wsSettings['headers']['Host'])) $str .= ', obfs-header="Host:' . $wsSettings['headers']['Host'] . '"';
+                        if (isset($wsSettings['path'])) {
+                            $str .= ', obfs-path="'.$wsSettings['path'].'"';
+                        }
+                        if (isset($wsSettings['headers']['Host'])) {
+                            $str .= ', obfs-header="Host:'.$wsSettings['headers']['Host'].'"';
+                        }
                     }
                 }
-                $uri .= "vmess://" . base64_encode($str) . "\r\n";
+                $uri .= 'vmess://'.base64_encode($str)."\r\n";
             }
         }
+
         return base64_encode($uri);
     }
 
@@ -84,9 +113,9 @@ class ClientController extends Controller
     {
         $uri = '';
         //display remaining traffic and expire date
-        $upload = round($user->u / (1024*1024*1024), 2);
-        $download = round($user->d / (1024*1024*1024), 2);
-        $totalTraffic = round($user->transfer_enable / (1024*1024*1024), 2);
+        $upload = round($user->u / (1024 * 1024 * 1024), 2);
+        $download = round($user->d / (1024 * 1024 * 1024), 2);
+        $totalTraffic = round($user->transfer_enable / (1024 * 1024 * 1024), 2);
         $expiredDate = date('Y-m-d', $user->expired_at);
         $uri .= "STATUS=🚀↑:{$upload}GB,↓:{$download}GB,TOT:{$totalTraffic}GB💡Expires:{$expiredDate}\r\n";
         foreach ($servers as $item) {
@@ -100,6 +129,7 @@ class ClientController extends Controller
                 $uri .= Shadowrocket::buildTrojan($user['uuid'], $item);
             }
         }
+
         return base64_encode($uri);
     }
 
@@ -118,6 +148,7 @@ class ClientController extends Controller
                 $uri .= QuantumultX::buildTrojan($user['uuid'], $item);
             }
         }
+
         return base64_encode($uri);
     }
 
@@ -135,6 +166,7 @@ class ClientController extends Controller
                 $uri .= URLSchemes::buildTrojan($item, $user);
             }
         }
+
         return base64_encode($uri);
     }
 
@@ -154,7 +186,7 @@ class ClientController extends Controller
         $subs['remark'] = config('v2board.app_name', 'V2Board');
         $subs['servers'] = array_merge($subs['servers'] ? $subs['servers'] : [], $configs);
 
-        return json_encode($subs, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT);
+        return json_encode($subs, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
     }
 
     private function surge($user, $servers = [])
@@ -167,24 +199,24 @@ class ClientController extends Controller
                 // [Proxy]
                 $proxies .= Surge::buildShadowsocks($user['uuid'], $item);
                 // [Proxy Group]
-                $proxyGroup .= $item['name'] . ', ';
+                $proxyGroup .= $item['name'].', ';
             }
             if ($item['type'] === 'v2ray') {
                 // [Proxy]
                 $proxies .= Surge::buildVmess($user['uuid'], $item);
                 // [Proxy Group]
-                $proxyGroup .= $item['name'] . ', ';
+                $proxyGroup .= $item['name'].', ';
             }
             if ($item['type'] === 'trojan') {
                 // [Proxy]
                 $proxies .= Surge::buildTrojan($user['uuid'], $item);
                 // [Proxy Group]
-                $proxyGroup .= $item['name'] . ', ';
+                $proxyGroup .= $item['name'].', ';
             }
         }
 
-        $defaultConfig = base_path() . '/resources/rules/default.surge.conf';
-        $customConfig = base_path() . '/resources/rules/custom.surge.conf';
+        $defaultConfig = base_path().'/resources/rules/default.surge.conf';
+        $customConfig = base_path().'/resources/rules/custom.surge.conf';
         if (\File::exists($customConfig)) {
             $config = file_get_contents("$customConfig");
         } else {
@@ -192,11 +224,12 @@ class ClientController extends Controller
         }
 
         // Subscription link
-        $subsURL = config('v2board.subscribe_url', config('v2board.app_url', env('APP_URL'))) . '/api/v1/client/subscribe?token=' . $user['token'];
+        $subsURL = config('v2board.subscribe_url', config('v2board.app_url', env('APP_URL'))).'/api/v1/client/subscribe?token='.$user['token'];
 
         $config = str_replace('$subs_link', $subsURL, $config);
         $config = str_replace('$proxies', $proxies, $config);
         $config = str_replace('$proxy_group', rtrim($proxyGroup, ', '), $config);
+
         return $config;
     }
 
@@ -210,18 +243,18 @@ class ClientController extends Controller
                 // [Proxy]
                 $proxies .= Surfboard::buildShadowsocks($user['uuid'], $item);
                 // [Proxy Group]
-                $proxyGroup .= $item['name'] . ', ';
+                $proxyGroup .= $item['name'].', ';
             }
             if ($item['type'] === 'v2ray') {
                 // [Proxy]
                 $proxies .= Surfboard::buildVmess($user['uuid'], $item);
                 // [Proxy Group]
-                $proxyGroup .= $item['name'] . ', ';
+                $proxyGroup .= $item['name'].', ';
             }
         }
 
-        $defaultConfig = base_path() . '/resources/rules/default.surfboard.conf';
-        $customConfig = base_path() . '/resources/rules/custom.surfboard.conf';
+        $defaultConfig = base_path().'/resources/rules/default.surfboard.conf';
+        $customConfig = base_path().'/resources/rules/custom.surfboard.conf';
         if (\File::exists($customConfig)) {
             $config = file_get_contents("$customConfig");
         } else {
@@ -229,18 +262,19 @@ class ClientController extends Controller
         }
 
         // Subscription link
-        $subsURL = config('v2board.subscribe_url', config('v2board.app_url', env('APP_URL'))) . '/api/v1/client/subscribe?token=' . $user['token'];
+        $subsURL = config('v2board.subscribe_url', config('v2board.app_url', env('APP_URL'))).'/api/v1/client/subscribe?token='.$user['token'];
 
         $config = str_replace('$subs_link', $subsURL, $config);
         $config = str_replace('$proxies', $proxies, $config);
         $config = str_replace('$proxy_group', rtrim($proxyGroup, ', '), $config);
+
         return $config;
     }
 
     private function clash($user, $servers = [])
     {
-        $defaultConfig = base_path() . '/resources/rules/default.clash.yaml';
-        $customConfig = base_path() . '/resources/rules/custom.clash.yaml';
+        $defaultConfig = base_path().'/resources/rules/default.clash.yaml';
+        $customConfig = base_path().'/resources/rules/custom.clash.yaml';
         if (\File::exists($customConfig)) {
             $config = Yaml::parseFile($customConfig);
         } else {
@@ -266,11 +300,62 @@ class ClientController extends Controller
 
         $config['proxies'] = array_merge($config['proxies'] ? $config['proxies'] : [], $proxy);
         foreach ($config['proxy-groups'] as $k => $v) {
-            if (!is_array($config['proxy-groups'][$k]['proxies'])) continue;
+            if (!is_array($config['proxy-groups'][$k]['proxies'])) {
+                continue;
+            }
             $config['proxy-groups'][$k]['proxies'] = array_merge($config['proxy-groups'][$k]['proxies'], $proxies);
         }
         $yaml = Yaml::dump($config);
         $yaml = str_replace('$app_name', config('v2board.app_name', 'V2Board'), $yaml);
+
         return $yaml;
+    }
+
+    /**
+     * 获取 subconverter 转换后规则.
+     *
+     * @param $originSubUrl
+     * @param $originUA
+     *
+     * @return string
+     *
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     */
+    public function requestSubConverter($originSubUrl, $originUA)
+    {
+        $body = [
+            'target' => 'auto',
+            'config' => config('v2board.subconverter_remote_config'),
+            'ver' => 4,
+            'url' => $originSubUrl,
+            'udp' => 'true',
+            'new_name' => 'true',
+            'clash.doh' => 'true',
+            'surge.doh' => 'true',
+        ];
+
+        $client = new \GuzzleHttp\Client([
+            'headers' => [
+                'User-Agent' => $originUA,
+            ],
+        ]);
+
+        $response = $client->request('GET', config('v2board.subconverter_backend').'/sub', [
+            'query' => $body,
+        ]);
+
+        return $response->getBody()->getContents();
+    }
+
+    private function isUAMatched($ua)
+    {
+        $flag = strtolower($ua);
+
+        return strpos($flag, 'quantumult%20x') !== false
+            || strpos($flag, 'quantumult') !== false
+            || strpos($flag, 'clash') !== false
+            || strpos($flag, 'surfboard') !== false
+            // || strpos($flag, 'surge') !== false
+            || strpos($flag, 'shadowrocket') !== false;
     }
 }

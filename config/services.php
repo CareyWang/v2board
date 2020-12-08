@@ -30,4 +30,9 @@ return [
         'region' => env('AWS_V2BOARD_REGION', 'us-east-1'),
     ],
 
+    'subconverter' => [
+        'enable' => false,
+        'subconverter_backend' => env('SUBCONVERTER', 'http://127.0.0.1:25500'),
+        'subconverter_remote_config' => env('SUBCONVERTER_REMOTE_CONFIG', ''),      
+    ],
 ];

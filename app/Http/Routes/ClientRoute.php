@@ -12,7 +12,13 @@ class ClientRoute
             'middleware' => 'client'
         ], function ($router) {
             // Client
-            $router->get('/subscribe', 'Client\\ClientController@subscribe');
+            if (config('system.subconverter.enable')) {
+                $router->get('/subscribe', 'Client\\ClientController@subscribe');
+            } else {
+                // 使用 subconverter 生成订阅
+                $router->get('/subscribe', 'Client\\ClientController@subscribeBySubConverter');
+            }
+            
             // App
             $router->get('/app/config', 'Client\\AppController@config');
             $router->get('/app/getConfig', 'Client\\AppController@getConfig');
