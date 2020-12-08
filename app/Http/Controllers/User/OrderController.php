@@ -91,7 +91,7 @@ class OrderController extends Controller
         }
 
         if ($request->input('cycle') === 'reset_price') {
-            if ($user->expired_at <= time() || !$user->plan_id) {
+            if (($user->expired_at && $user->expired_at <= time()) || !$user->plan_id) {
                 abort(500, '订阅已过期或无有效订阅，无法购买重置包');
             }
         }
